@@ -1,0 +1,646 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CE Controller</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #5d6671;
+    --line: #d5d9df; --key: #eef0f3; --accent: #1f6feb; --accent-text: #ffffff;
+    --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151a; --panel: #1b2027; --text: #e6e9ee; --muted: #9aa4b1;
+      --line: #323a45; --key: #262d36; --accent: #4c8dff; --accent-text: #0b1220;
+      --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 2px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  p.sub { margin: 0 0 14px; color: var(--muted); }
+  section { background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+  button, select { font: inherit; color: var(--text); }
+  .btn { min-height: 44px; padding: 0 14px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--key); cursor: pointer; }
+  .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .status { margin-top: 10px; padding: 8px 10px; border-radius: 8px;
+    background: var(--key); color: var(--muted); }
+  .status.ok { color: var(--ok); } .status.warn { color: var(--warn); } .status.bad { color: var(--bad); }
+  .pad { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .key { min-height: 52px; padding: 4px 2px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--key); cursor: pointer; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; line-height: 1.15; }
+  .key .lbl { font-weight: 600; font-size: 14px; }
+  .key .out { font-size: 11px; color: var(--muted); min-height: 13px; }
+  .key.sel { outline: 3px solid var(--accent); outline-offset: -1px; }
+  .key.pressed { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  .key.pressed .out { color: var(--accent-text); }
+  .arrows { display: grid; grid-template-columns: repeat(3, 64px); gap: 6px; margin-top: 10px; }
+  .arrows .a-up { grid-column: 2; grid-row: 1; } .arrows .a-left { grid-column: 1; grid-row: 2; }
+  .arrows .a-right { grid-column: 3; grid-row: 2; } .arrows .a-down { grid-column: 2; grid-row: 3; }
+  .field { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  select { min-height: 44px; padding: 0 8px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--key); max-width: 100%; }
+  label.check { display: flex; gap: 8px; align-items: center; margin-top: 10px; color: var(--muted); }
+  canvas { width: 100%; max-width: 320px; height: auto; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--key); display: block; }
+  #log { margin: 10px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--key);
+    font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; min-height: 70px;
+    white-space: pre-wrap; color: var(--muted); }
+  textarea { width: 100%; min-height: 90px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--key); color: var(--text); padding: 8px;
+    font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+  .note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>CE Controller</h1>
+  <p class="sub">Use your TI-84 Plus CE as a custom controller. Run the CEPAD program on the calculator, plug it in, then connect below.</p>
+
+  <section>
+    <h2>1. Connect</h2>
+    <div class="row">
+      <button class="btn primary" id="btnSerial">Connect (Web Serial)</button>
+      <button class="btn" id="btnUsb">Connect (WebUSB)</button>
+      <button class="btn" id="btnDisconnect" disabled>Disconnect</button>
+    </div>
+    <div class="status" id="status" role="status" aria-live="polite">Not connected.</div>
+    <p class="note">Start with Web Serial. If it is missing or blocked on your Chromebook, try WebUSB.</p>
+  </section>
+
+  <section>
+    <h2>2. Map your keys</h2>
+    <p class="note" style="margin-top:0">Tap a key to select it, then choose what it sends. Keys light up when pressed on the calculator.</p>
+    <div class="pad" id="pad"></div>
+    <div class="arrows" id="arrows"></div>
+
+    <div class="field" id="selInfo">Selected: <strong id="selName">none</strong></div>
+    <div class="field">
+      <label for="outSelect">Sends</label>
+      <select id="outSelect" disabled></select>
+      <button class="btn" id="btnRecord" disabled>Record a keyboard key</button>
+    </div>
+    <div class="field">
+      <button class="btn" id="btnHold" disabled>Hold to test</button>
+      <button class="btn" id="btnUnmap" disabled>Remove mapping</button>
+    </div>
+    <label class="check"><input type="checkbox" id="chkListen" checked> Select a key when I press it on the calculator</label>
+
+    <div class="field" style="margin-top:14px">
+      <span>Presets:</span>
+      <button class="btn" data-preset="arrows">Arrows + Z/X</button>
+      <button class="btn" data-preset="wasd">WASD</button>
+      <button class="btn" data-preset="digits">Number keys</button>
+      <button class="btn" data-preset="none">Clear all</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Test arena</h2>
+    <canvas id="arena" width="320" height="200"></canvas>
+    <p class="note">Arrow keys or WASD move the dot, Space makes it flash. Mapped calculator keys send real keyboard events to this page.</p>
+    <div id="log" aria-live="off">Waiting for input...</div>
+    <p class="note"><strong>Heads up:</strong> a web page can only send key events to itself, not to other apps or tabs.</p>
+  </section>
+
+  <section>
+    <h2>Save / load mapping</h2>
+    <p class="note" style="margin-top:0">Your mapping is saved in this browser automatically. Copy it here if you want a backup, since school Chromebooks may clear browser data.</p>
+    <textarea id="mapText" spellcheck="false"></textarea>
+    <div class="field">
+      <button class="btn" id="btnExport">Show current mapping</button>
+      <button class="btn" id="btnImport">Load from box</button>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- Protocol (must match src/main.c) ---------- */
+  var SYNC = 0xA5, GROUPS = 7, FRAME_LEN = GROUPS + 2;
+  var CE_VID = 0x16C0, CE_PID = 0x05E1;
+
+  /* Group 1..7, bit 0..7, exactly as in keypadc.h. null = unused bit. */
+  var GROUP_KEYS = [
+    ['graph', 'trace', 'zoom', 'window', 'yequ', '2nd', 'mode', 'del'],
+    [null, 'sto', 'ln', 'log', 'square', 'recip', 'math', 'alpha'],
+    ['0', '1', '4', '7', 'comma', 'sin', 'apps', 'xtn'],
+    ['dot', '2', '5', '8', 'lparen', 'cos', 'prgm', 'stat'],
+    ['chs', '3', '6', '9', 'rparen', 'tan', 'vars', null],
+    ['enter', 'add', 'sub', 'mul', 'div', 'power', 'clear', null],
+    ['down', 'left', 'right', 'up', null, null, null, null]
+  ];
+  var LABELS = {
+    graph: 'Graph', trace: 'Trace', zoom: 'Zoom', window: 'Window', yequ: 'Y=',
+    '2nd': '2nd', mode: 'Mode', del: 'Del', sto: 'Sto→', ln: 'ln', log: 'log',
+    square: 'x²', recip: 'x⁻¹', math: 'Math', alpha: 'Alpha',
+    '0': '0', '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7',
+    '8': '8', '9': '9', comma: ',', sin: 'sin', apps: 'Apps', xtn: 'X,T,θ,n',
+    dot: '.', lparen: '(', cos: 'cos', prgm: 'Prgm', stat: 'Stat', chs: '(−)',
+    rparen: ')', tan: 'tan', vars: 'Vars', enter: 'Enter', add: '+', sub: '−',
+    mul: '×', div: '÷', power: '^', clear: 'Clear',
+    down: '↓', left: '←', right: '→', up: '↑'
+  };
+  var LAYOUT = [
+    ['yequ', 'window', 'zoom', 'trace', 'graph'],
+    ['2nd', 'mode', 'del'],
+    ['alpha', 'xtn', 'stat'],
+    ['math', 'apps', 'prgm', 'vars', 'clear'],
+    ['recip', 'sin', 'cos', 'tan', 'power'],
+    ['square', 'comma', 'lparen', 'rparen', 'div'],
+    ['log', '7', '8', '9', 'mul'],
+    ['ln', '4', '5', '6', 'sub'],
+    ['sto', '1', '2', '3', 'add'],
+    ['0', 'dot', 'chs', 'enter']
+  ];
+  var ARROWS = ['up', 'left', 'right', 'down'];
+
+  /* ---------- Output catalog (what a calculator key can send) ---------- */
+  var OUTPUTS = [];          // {label, key, code, group}
+  var OUT_BY_CODE = {};
+  function addOut(group, label, key, code) {
+    var o = { group: group, label: label, key: key, code: code };
+    OUTPUTS.push(o); OUT_BY_CODE[code] = o;
+  }
+  ['Up', 'Down', 'Left', 'Right'].forEach(function (d) { addOut('Arrows', 'Arrow ' + d, 'Arrow' + d, 'Arrow' + d); });
+  addOut('Common', 'Space', ' ', 'Space');
+  addOut('Common', 'Enter', 'Enter', 'Enter');
+  addOut('Common', 'Escape', 'Escape', 'Escape');
+  addOut('Common', 'Backspace', 'Backspace', 'Backspace');
+  addOut('Common', 'Tab', 'Tab', 'Tab');
+  addOut('Common', 'Shift', 'Shift', 'ShiftLeft');
+  addOut('Common', 'Ctrl', 'Control', 'ControlLeft');
+  addOut('Common', 'Alt', 'Alt', 'AltLeft');
+  for (var c = 65; c <= 90; c++) {
+    var ch = String.fromCharCode(c);
+    addOut('Letters', ch, ch.toLowerCase(), 'Key' + ch);
+  }
+  for (var d = 0; d <= 9; d++) addOut('Digits', String(d), String(d), 'Digit' + d);
+  for (var f = 1; f <= 12; f++) addOut('Function keys', 'F' + f, 'F' + f, 'F' + f);
+
+  function outLabel(o) {
+    if (!o) return '';
+    var known = OUT_BY_CODE[o.code];
+    if (known) {
+      if (/^Arrow/.test(o.code)) return { ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' }[o.code];
+      return known.label;
+    }
+    return (o.key && o.key.length === 1) ? o.key.toUpperCase() : (o.key || o.code);
+  }
+
+  /* ---------- State ---------- */
+  var STORAGE_KEY = 'cepad.map.v1';
+  var map = {};                  // keyId -> {key, code}
+  var down = {};                 // keyId -> true while pressed on the calculator
+  var outCount = {};             // code -> number of calculator keys holding it
+  var outObj = {};               // code -> output object currently held
+  var selected = null;
+  var recording = false;
+  var buf = [];
+  var lastFrame = 0;
+  var conn = null;               // {kind, close()}
+  var held = {};                 // codes currently held, as seen by the arena
+  var flash = 0;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var keyEls = {};
+
+  /* ---------- Persistence ---------- */
+  function saveMap() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(map)); } catch (e) { /* storage may be blocked */ }
+  }
+  function loadMap() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) { var m = JSON.parse(raw); if (validMap(m)) return m; }
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+  function validMap(m) {
+    if (!m || typeof m !== 'object' || Array.isArray(m)) return false;
+    for (var k in m) {
+      if (!Object.prototype.hasOwnProperty.call(m, k)) continue;
+      if (!LABELS[k]) return false;
+      var o = m[k];
+      if (!o || typeof o.key !== 'string' || typeof o.code !== 'string') return false;
+    }
+    return true;
+  }
+
+  /* ---------- Presets ---------- */
+  function out(code) { return OUT_BY_CODE[code] ? { key: OUT_BY_CODE[code].key, code: code } : null; }
+  var PRESETS = {
+    arrows: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+      '2nd': 'KeyZ', alpha: 'KeyX', enter: 'Enter', clear: 'Escape', del: 'Backspace' },
+    wasd: { up: 'KeyW', left: 'KeyA', down: 'KeyS', right: 'KeyD',
+      '2nd': 'Space', alpha: 'ShiftLeft', enter: 'Enter', clear: 'Escape' },
+    digits: { '0': 'Digit0', '1': 'Digit1', '2': 'Digit2', '3': 'Digit3', '4': 'Digit4',
+      '5': 'Digit5', '6': 'Digit6', '7': 'Digit7', '8': 'Digit8', '9': 'Digit9', enter: 'Enter' },
+    none: {}
+  };
+  function applyPreset(name) {
+    releaseAll();
+    map = {};
+    var p = PRESETS[name] || {};
+    Object.keys(p).forEach(function (k) { map[k] = out(p[k]); });
+    saveMap(); renderAll();
+  }
+
+  /* ---------- Keyboard event output ---------- */
+  function fire(type, o) {
+    var ev;
+    try {
+      ev = new KeyboardEvent(type, { key: o.key, code: o.code, bubbles: true, cancelable: true });
+    } catch (e) { return; }
+    document.dispatchEvent(ev);
+  }
+  function pressOut(o) {
+    var n = (outCount[o.code] || 0) + 1;
+    outCount[o.code] = n; outObj[o.code] = o;
+    if (n === 1) fire('keydown', o);
+  }
+  function releaseOut(o) {
+    var n = (outCount[o.code] || 0) - 1;
+    if (n <= 0) { delete outCount[o.code]; delete outObj[o.code]; fire('keyup', o); }
+    else outCount[o.code] = n;
+  }
+  function releaseAll() {
+    Object.keys(outObj).forEach(function (code) { fire('keyup', outObj[code]); });
+    outCount = {}; outObj = {};
+    Object.keys(down).forEach(function (k) { delete down[k]; });
+    renderDown();
+  }
+
+  /* ---------- Calculator key events ---------- */
+  function onKey(id, isDown) {
+    if (isDown) down[id] = true; else delete down[id];
+    var o = map[id];
+    if (o) { if (isDown) pressOut(o); else releaseOut(o); }
+    log('calc ' + LABELS[id] + (isDown ? ' down' : ' up') + (o ? '  ->  ' + outLabel(o) : ''));
+    if (isDown && $('chkListen').checked) select(id);
+    renderDown();
+  }
+
+  function applyFrame(bytes) {
+    for (var g = 0; g < GROUPS; g++) {
+      for (var b = 0; b < 8; b++) {
+        var id = GROUP_KEYS[g][b];
+        if (!id) continue;
+        var isDown = (bytes[g] & (1 << b)) !== 0;
+        if (isDown !== !!down[id]) onKey(id, isDown);
+      }
+    }
+  }
+
+  /* Accepts raw bytes in any chunking; resyncs on garbage. */
+  function feed(chunk) {
+    for (var i = 0; i < chunk.length; i++) buf.push(chunk[i] & 0xFF);
+    while (buf.length >= FRAME_LEN) {
+      if (buf[0] !== SYNC) { buf.shift(); continue; }
+      var cs = 0;
+      for (var j = 1; j <= GROUPS; j++) cs ^= buf[j];
+      if (cs !== buf[FRAME_LEN - 1]) { buf.shift(); continue; }
+      lastFrame = Date.now();
+      applyFrame(buf.slice(1, 1 + GROUPS));
+      buf.splice(0, FRAME_LEN);
+      if (conn) setStatus('ok', 'Connected (' + conn.kind + '). Receiving data.');
+    }
+    if (buf.length > 512) buf.splice(0, buf.length - 64);
+  }
+
+  /* ---------- Connection ---------- */
+  function setStatus(cls, text) {
+    var s = $('status');
+    if (text === null) return;
+    s.className = 'status' + (cls ? ' ' + cls : '');
+    s.textContent = text;
+  }
+  function explain(err) {
+    var name = err && err.name ? err.name : 'Error';
+    var msg = err && err.message ? err.message : String(err);
+    if (name === 'NotFoundError') return 'No device was chosen. Make sure CEPAD is running on the calculator, then try again.';
+    if (name === 'SecurityError' || name === 'NotAllowedError') return name + ': blocked. A managed Chromebook may disable this feature, or the page needs to be opened from https or a local file.';
+    if (name === 'NetworkError') return 'NetworkError: ' + msg + ' (the calculator may be in use by another tab or program).';
+    return name + ': ' + msg;
+  }
+  function onConnected(kind, closer) {
+    conn = { kind: kind, close: closer };
+    buf = []; lastFrame = 0;
+    $('btnDisconnect').disabled = false;
+    $('btnSerial').disabled = true; $('btnUsb').disabled = true;
+    setStatus('warn', 'Connected (' + kind + '). Waiting for data from the calculator...');
+  }
+  function onDisconnected(reason) {
+    var was = conn; conn = null;
+    releaseAll();
+    $('btnDisconnect').disabled = true;
+    $('btnSerial').disabled = !('serial' in navigator);
+    $('btnUsb').disabled = !('usb' in navigator);
+    if (was) setStatus(reason ? 'bad' : '', reason || 'Disconnected.');
+  }
+
+  async function connectSerial() {
+    try {
+      var port = await navigator.serial.requestPort({ filters: [{ usbVendorId: CE_VID, usbProductId: CE_PID }] });
+      await port.open({ baudRate: 115200 });
+      var reader = port.readable.getReader();
+      var closed = false;
+      onConnected('Web Serial', async function () {
+        closed = true;
+        try { await reader.cancel(); } catch (e) {}
+        try { reader.releaseLock(); } catch (e) {}
+        try { await port.close(); } catch (e) {}
+      });
+      try {  // ask the calculator for a frame right away
+        var w = port.writable.getWriter();
+        await w.write(new Uint8Array([1])); w.releaseLock();
+      } catch (e) {}
+      (async function loop() {
+        try {
+          while (!closed) {
+            var r = await reader.read();
+            if (r.done) break;
+            if (r.value) feed(r.value);
+          }
+          if (!closed) onDisconnected('The calculator disconnected.');
+        } catch (e) {
+          if (!closed) onDisconnected('Connection lost: ' + explain(e));
+        }
+      })();
+    } catch (e) { setStatus('bad', explain(e)); }
+  }
+
+  async function connectUsb() {
+    var dev = null;
+    try {
+      dev = await navigator.usb.requestDevice({ filters: [{ vendorId: CE_VID, productId: CE_PID }] });
+      await dev.open();
+      if (dev.configuration === null) await dev.selectConfiguration(1);
+
+      var dataIface = null, inEp = null, commIface = null;
+      dev.configuration.interfaces.forEach(function (itf) {
+        var alt = itf.alternates[0];
+        if (alt.interfaceClass === 0x0A) {
+          dataIface = itf.interfaceNumber;
+          alt.endpoints.forEach(function (ep) {
+            if (ep.direction === 'in' && ep.type === 'bulk') inEp = ep.endpointNumber;
+          });
+        } else if (alt.interfaceClass === 0x02) {
+          commIface = itf.interfaceNumber;
+        }
+      });
+      if (dataIface === null || inEp === null) throw new Error('The calculator did not show the expected serial interface.');
+
+      if (commIface !== null) { try { await dev.claimInterface(commIface); } catch (e) { commIface = null; } }
+      await dev.claimInterface(dataIface);
+
+      if (commIface !== null) {   // best effort: act like a normal serial host
+        try {
+          await dev.controlTransferOut({ requestType: 'class', recipient: 'interface', request: 0x20, value: 0, index: commIface },
+            new Uint8Array([0x00, 0xC2, 0x01, 0x00, 0, 0, 8]));
+        } catch (e) {}
+        try {
+          await dev.controlTransferOut({ requestType: 'class', recipient: 'interface', request: 0x22, value: 3, index: commIface });
+        } catch (e) {}
+      }
+
+      var closed = false;
+      onConnected('WebUSB', async function () {
+        closed = true;
+        try { await dev.close(); } catch (e) {}
+      });
+      (async function loop() {
+        try {
+          while (!closed) {
+            var r = await dev.transferIn(inEp, 64);
+            if (r.status === 'ok' && r.data) feed(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength));
+            else if (r.status === 'stall') await dev.clearHalt('in', inEp);
+          }
+        } catch (e) {
+          if (!closed) onDisconnected('Connection lost: ' + explain(e));
+        }
+      })();
+    } catch (e) {
+      if (dev) { try { await dev.close(); } catch (x) {} }
+      setStatus('bad', explain(e) + (e && e.name === 'SecurityError' ? '' : ' If WebUSB keeps failing, try Web Serial.'));
+    }
+  }
+
+  /* ---------- UI ---------- */
+  function makeKey(id, extraClass) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'key' + (extraClass ? ' ' + extraClass : '');
+    b.setAttribute('data-id', id);
+    b.innerHTML = '<span class="lbl"></span><span class="out"></span>';
+    b.querySelector('.lbl').textContent = LABELS[id];
+    b.addEventListener('click', function () { select(id); });
+    keyEls[id] = b;
+    return b;
+  }
+  function buildPad() {
+    var pad = $('pad');
+    LAYOUT.forEach(function (row) {
+      row.forEach(function (id) { pad.appendChild(makeKey(id)); });
+      for (var i = row.length; i < 5; i++) pad.appendChild(document.createElement('span'));
+    });
+    var ar = $('arrows');
+    ARROWS.forEach(function (id) { ar.appendChild(makeKey(id, 'a-' + id)); });
+  }
+  function buildSelect() {
+    var sel = $('outSelect');
+    sel.innerHTML = '';
+    var none = document.createElement('option');
+    none.value = ''; none.textContent = '(nothing)';
+    sel.appendChild(none);
+    var custom = document.createElement('option');
+    custom.value = '__custom'; custom.textContent = 'Recorded key'; custom.hidden = true;
+    sel.appendChild(custom);
+    var groups = {};
+    OUTPUTS.forEach(function (o) {
+      if (!groups[o.group]) {
+        var og = document.createElement('optgroup'); og.label = o.group;
+        groups[o.group] = og; sel.appendChild(og);
+      }
+      var op = document.createElement('option');
+      op.value = o.code; op.textContent = o.label;
+      groups[o.group].appendChild(op);
+    });
+  }
+  function select(id) {
+    selected = id;
+    renderSelection();
+  }
+  function renderSelection() {
+    Object.keys(keyEls).forEach(function (id) { keyEls[id].classList.toggle('sel', id === selected); });
+    var has = selected !== null;
+    $('selName').textContent = has ? LABELS[selected] : 'none';
+    $('outSelect').disabled = !has; $('btnRecord').disabled = !has;
+    $('btnHold').disabled = !has; $('btnUnmap').disabled = !has || !map[selected];
+    var sel = $('outSelect');
+    var custom = sel.querySelector('option[value="__custom"]');
+    var o = has ? map[selected] : null;
+    if (!o) { sel.value = ''; custom.hidden = true; }
+    else if (OUT_BY_CODE[o.code]) { sel.value = o.code; custom.hidden = true; }
+    else { custom.hidden = false; custom.textContent = 'Recorded: ' + outLabel(o); sel.value = '__custom'; }
+    $('btnRecord').textContent = recording ? 'Press a key... (tap to cancel)' : 'Record a keyboard key';
+  }
+  function renderMapLabels() {
+    Object.keys(keyEls).forEach(function (id) {
+      var o = map[id];
+      keyEls[id].querySelector('.out').textContent = o ? '→ ' + outLabel(o) : '';
+    });
+  }
+  function renderDown() {
+    Object.keys(keyEls).forEach(function (id) { keyEls[id].classList.toggle('pressed', !!down[id]); });
+  }
+  function renderAll() { renderMapLabels(); renderSelection(); renderDown(); }
+
+  var logLines = [];
+  function log(line) {
+    logLines.push(line);
+    if (logLines.length > 6) logLines.shift();
+    $('log').textContent = logLines.join('\n');
+  }
+
+  function setMapping(id, o) {
+    if (down[id] && map[id]) releaseOut(map[id]);   // do not leave an old output stuck
+    if (o) map[id] = o; else delete map[id];
+    if (down[id] && map[id]) pressOut(map[id]);
+    saveMap(); renderAll();
+  }
+
+  /* ---------- Test arena ---------- */
+  function startArena() {
+    var cv = $('arena');
+    var ctx = cv.getContext ? cv.getContext('2d') : null;
+    if (!ctx) return;
+    var x = 160, y = 100, r = 10;
+    function tick() {
+      var speed = 3;
+      if (held.ArrowLeft || held.KeyA) x -= speed;
+      if (held.ArrowRight || held.KeyD) x += speed;
+      if (held.ArrowUp || held.KeyW) y -= speed;
+      if (held.ArrowDown || held.KeyS) y += speed;
+      x = Math.max(r, Math.min(cv.width - r, x));
+      y = Math.max(r, Math.min(cv.height - r, y));
+      if (held.Space) flash = 6;
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      ctx.fillStyle = flash > 0 ? '#f0883e' : '#1f6feb';
+      ctx.beginPath(); ctx.arc(x, y, r + (flash > 0 ? 4 : 0), 0, Math.PI * 2); ctx.fill();
+      if (flash > 0) flash--;
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  /* ---------- Wiring ---------- */
+  function init() {
+    buildPad(); buildSelect();
+    map = loadMap() || {};
+    if (!Object.keys(map).length && !localStorageHasMap()) {
+      Object.keys(PRESETS.arrows).forEach(function (k) { map[k] = out(PRESETS.arrows[k]); });
+    }
+    renderAll();
+
+    $('btnSerial').disabled = !('serial' in navigator);
+    $('btnUsb').disabled = !('usb' in navigator);
+    if (!('serial' in navigator) && !('usb' in navigator)) {
+      setStatus('bad', 'This browser has neither Web Serial nor WebUSB. Use Chrome on a Chromebook or computer.');
+    }
+    $('btnSerial').addEventListener('click', connectSerial);
+    $('btnUsb').addEventListener('click', connectUsb);
+    $('btnDisconnect').addEventListener('click', function () {
+      var c = conn;
+      if (c && c.close) c.close();
+      onDisconnected('');
+    });
+
+    $('outSelect').addEventListener('change', function (e) {
+      if (!selected) return;
+      var v = e.target.value;
+      if (v === '__custom') return;
+      setMapping(selected, v ? out(v) : null);
+    });
+    $('btnUnmap').addEventListener('click', function () { if (selected) setMapping(selected, null); });
+    $('btnRecord').addEventListener('click', function () {
+      recording = !recording; renderSelection();
+    });
+    var holdOn = false;
+    function holdStart(ev) {
+      if (!selected || holdOn) return;
+      ev.preventDefault(); holdOn = true; onKey(selected, true);
+    }
+    function holdEnd() {
+      if (!holdOn) return;
+      holdOn = false; if (selected) onKey(selected, false);
+    }
+    var hb = $('btnHold');
+    hb.addEventListener('pointerdown', holdStart);
+    window.addEventListener('pointerup', holdEnd);
+    window.addEventListener('pointercancel', holdEnd);
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-preset]'), function (b) {
+      b.addEventListener('click', function () { applyPreset(b.getAttribute('data-preset')); });
+    });
+
+    $('btnExport').addEventListener('click', function () { $('mapText').value = JSON.stringify(map, null, 1); });
+    $('btnImport').addEventListener('click', function () {
+      try {
+        var m = JSON.parse($('mapText').value);
+        if (!validMap(m)) throw new Error('bad mapping');
+        releaseAll(); map = m; saveMap(); renderAll(); log('mapping loaded');
+      } catch (e) { log('could not load mapping: ' + e.message); }
+    });
+
+    /* Recording a keyboard key (real key presses only) */
+    window.addEventListener('keydown', function (ev) {
+      if (recording && ev.isTrusted && selected) {
+        ev.preventDefault();
+        recording = false;
+        setMapping(selected, { key: ev.key, code: ev.code });
+        return;
+      }
+      held[ev.code] = true;
+    });
+    window.addEventListener('keyup', function (ev) { delete held[ev.code]; });
+    window.addEventListener('blur', function () { held = {}; });
+
+    setInterval(function () {
+      if (conn && lastFrame && Date.now() - lastFrame > 2000) {
+        setStatus('warn', 'Connected (' + conn.kind + ') but no data. Is CEPAD still running on the calculator?');
+      }
+    }, 1000);
+
+    startArena();
+  }
+  function localStorageHasMap() {
+    try { return localStorage.getItem(STORAGE_KEY) !== null; } catch (e) { return false; }
+  }
+
+  /* Small hook so the logic can be tested without hardware. */
+  window.cepad = {
+    feed: feed,
+    getMap: function () { return JSON.parse(JSON.stringify(map)); },
+    setMapping: setMapping,
+    isDown: function (id) { return !!down[id]; },
+    disconnect: function () { onDisconnected('test'); }
+  };
+
+  init();
+})();
+</script>
+</body>
+</html>
