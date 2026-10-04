@@ -1,0 +1,34 @@
+name: Build CEPAD
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out the project
+        uses: actions/checkout@v4
+
+      - name: Install the CE toolchain
+        run: |
+          curl -fsSL -o CEdev.tar.gz https://github.com/CE-Programming/toolchain/releases/latest/download/CEdev-Linux.tar.gz
+          tar -xzf CEdev.tar.gz
+          echo "$PWD/CEdev/bin" >> "$GITHUB_PATH"
+
+      - name: Build CEPAD.8xp
+        run: make
+
+      - name: Download the CE libraries (clibs.8xg)
+        continue-on-error: true
+        run: curl -fsSL -o bin/clibs.8xg https://github.com/CE-Programming/libraries/releases/latest/download/clibs.8xg
+
+      - name: Save the results
+        uses: actions/upload-artifact@v4
+        with:
+          name: CEPAD
+          path: |
+            bin/CEPAD.8xp
+            bin/clibs.8xg
+          if-no-files-found: warn
